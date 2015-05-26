@@ -1,0 +1,1515 @@
+词法语法分析类: 
+/************************************************************************ 
+* 文件名：    FenXi.h 
+* 文件描述：  词法语法分析的头文件
+* 创建人：    程红秀, 2005年06月15日 
+* 版本号：    1.0 
+************************************************************************/ 
+
+#if !defined _FENXI_H
+#define _FENXI_H
+
+
+struct CIFA //保存词法分析结果
+{
+int nType; //0:错误, 1:标志符, 2:数字, 3-:关键字和操作符, -1:结束符
+int nValue; //二元式中的值
+char szText[20]; //单词
+int nAddr; //源文件缓冲区中地址
+};
+
+class CFenXi  
+{ 
+
+public:
+void YuFaFenXi();  //语法分析
+void CiFaFenXi();  //词法分析
+
+int m_nErrAddr; //语法错误对应单词的地址
+int m_nErrNo; //语法错误代码
+char m_str[20000]; //源程序缓冲区
+char m_szErrMsg[100][100]; //错误信息表
+CIFA * m_cifa[10000]; //词法分析结果
+
+protected:
+void init();
+
+int m_nCur; //用于语法分析中，指示词法分析结果表中当前的位置
+int m_n; //用于词法分析中，用于指示词法分析结果的个数
+char m_szKW[50][20]; //关键词表
+
+int FindInKWTab(char *);
+
+/*----------------语法分析函数-----------------------*/
+bool y_GuanXi(); //关系
+bool y_GuanXiBiaoDaShi(); //关系表达式
+bool y_BuErBiaoDaShi(); //布尔表达式
+bool y_YinZi(); //因子
+bool y_Xiang(); //项
+bool y_BiaoDaShi(); //表达式
+bool y_ShiCanBiao(); //实参表
+bool y_GuoChengYuJu(); //过程语句
+bool y_XunHuanYuJu(); //循环语句
+bool y_TiaoJianYuJu(); //条件语句
+bool y_FuZhiYuJu(); //赋值语句
+bool y_FuHeYuJu(); //复合语句
+bool y_YuJu(); //语句
+bool y_YuJuChuan(); //语句串
+bool y_XingCan(); //形参
+bool y_XingCanBuFeng(); //形参部分
+bool y_GuoChengShengMing(); //过程说明
+bool y_BianliangShengMing();//简便说明
+bool y_ShengMing(); //说明 
+bool y_ShengMingChuan(); //说明串
+bool y_ChengXuTi(); //程序体
+bool y_ChengXu(); //程序
+/*-----------------------------------------------------*/
+};
+
+#endif 
+
+
+ 
+
+/************************************************************************ 
+* 文件名：    FenXi.cpp 
+* 文件描述：  词法语法分析的实现文件
+* 创建人：    程红秀, 2005年06月15日 
+************************************************************************/ 
+#include "stdafx.h"
+#include "fenxi.h"
+
+
+/*================================================================ 
+* 函数名：    CiFaFenXi
+* 功能描述:   词法分析 (public)
+* 返回值：    void
+================================================================*/
+void CFenXi::CiFaFenXi()
+{
+BOOL flag=false;
+char token[20];
+int k,v;
+
+init();
+
+for (int i=0;i<m_n;i++)  //当第2次调用该函数时，就要释放前1次的资源
+delete m_cifa[i];
+
+int n=0; //用于指示当前的字符
+m_n=0; //词法结果的个数
+
+while (m_str[n])
+{
+if (flag)
+{
+while (!((m_str[n]=='*')&&(m_str[n+1]=='/')))
+{
+if (m_str[n]) 
+n++;
+else 
+break;
+}
+
+if (m_str[n])
+{
+n++;
+n++;
+flag=false;
+}
+}
+while (1)
+{
+while ((m_str[n]==32) || (m_str[n]==9))
+n++;
+
+if (!((m_str[n]==13) && (m_str[n+1]==10)))
+break;
+
+n++;
+n++;
+}
+
+
+if (isalpha(m_str[n])) //字母
+{
+k=0;
+while (1)
+{
+if (k<19) //标志符的长度为20
+token[k++]=m_str[n++];
+else 
+n++;
+
+if (!isalnum(m_str[n])) //如果不是数字或字母就退出
+break;
+}
+
+token[k]=0;
+v=FindInKWTab(token); //查找关键词表
+if (v) //如果是关键词
+{
+m_cifa[m_n]=new CIFA;
+m_cifa[m_n]->nValue=0;
+m_cifa[m_n]->nType=v;
+strcpy(m_cifa[m_n]->szText,token);
+m_cifa[m_n]->nAddr=n-k;
+m_n++;
+}
+else   //普通标志符
+{
+m_cifa[m_n]=new CIFA;
+
+    /*----------在词法分析结果中查找-----------*/
+int vv=1;
+for (int i=0;i<m_n;i++)
+{
+if (m_cifa[i]->nType==1)
+{
+vv++;
+if (!::stricmp(m_cifa[i]->szText,token))
+m_cifa[m_n]->nValue= m_cifa[i]->nValue;
+}
+}
+m_cifa[m_n]->nValue=vv;
+    /*---------------------------------------*/
+
+m_cifa[m_n]->nType=1;
+strcpy(m_cifa[m_n]->szText,token);
+m_cifa[m_n]->nAddr=n-k;
+m_n++;
+}
+}
+else if (isdigit(m_str[n])) //数字
+{
+k=0;
+BOOL error=false;
+while (1)
+{
+if (k<=8) 
+token[k++]=m_str[n++];
+else
+{
+error=true;
+n++;
+}
+if (!isdigit(m_str[n])) 
+break;
+}
+token[k]=0;
+v=::strtol(token,NULL,10);
+if (error)
+{
+m_cifa[m_n]=new CIFA;
+m_cifa[m_n]->nValue=1;
+m_cifa[m_n]->nType=0;
+strcpy(m_cifa[m_n]->szText,token);
+m_cifa[m_n]->nAddr=n-k;
+m_n++;
+}
+else
+{
+m_cifa[m_n]=new CIFA;
+m_cifa[m_n]->nValue=v;
+m_cifa[m_n]->nType=2;
+strcpy(m_cifa[m_n]->szText,token);
+m_cifa[m_n]->nAddr=n-k;
+m_n++;
+}
+}
+else
+switch (m_str[n]) //其他符号
+{
+case '+':
+case '-':
+case '*':
+case '~':
+case '&':
+case '|':
+case '=':
+case ';':
+case '.':
+case ',':
+case '(':
+case ')':
+token[0]=m_str[n];
+token[1]=0;
+v=FindInKWTab(token);
+
+m_cifa[m_n]=new CIFA;
+m_cifa[m_n]->nValue=0;
+m_cifa[m_n]->nType=v;
+strcpy(m_cifa[m_n]->szText,token);
+m_cifa[m_n]->nAddr=n;
+
+m_n++;
+n++;
+break;
+
+case '\0':
+break;
+
+case '/':
+switch (m_str[n+1])
+{
+case '*':
+n++;
+n++;
+flag=true;
+break;
+default:
+token[0]=m_str[n];
+token[1]=0;
+v=FindInKWTab(token);
+m_cifa[m_n]=new CIFA;
+m_cifa[m_n]->nValue=0;
+m_cifa[m_n]->nType=v;
+strcpy(m_cifa[m_n]->szText,token);
+m_cifa[m_n]->nAddr=n;
+m_n++;
+n++;
+}
+break;
+
+case '<':
+switch (m_str[n+1])
+{
+case '=':
+token[0]=m_str[n];
+token[1]=m_str[n+1];
+token[2]=0;
+v=FindInKWTab(token);
+m_cifa[m_n]=new CIFA;
+m_cifa[m_n]->nValue=0;
+m_cifa[m_n]->nType=v;
+strcpy(m_cifa[m_n]->szText,token);
+m_cifa[m_n]->nAddr=n;
+m_n++;
+n++;
+n++;
+break;
+case '>':
+token[0]=m_str[n];
+token[1]=m_str[n+1];
+token[2]=0;
+v=FindInKWTab(token);
+m_cifa[m_n]=new CIFA;
+m_cifa[m_n]->nValue=0;
+m_cifa[m_n]->nType=v;
+strcpy(m_cifa[m_n]->szText,token);
+m_cifa[m_n]->nAddr=n;
+m_n++;
+n++;
+n++;
+break;
+
+default:
+token[0]=m_str[n];
+token[1]=0;
+v=FindInKWTab(token);
+m_cifa[m_n]=new CIFA;
+m_cifa[m_n]->nValue=0;
+m_cifa[m_n]->nType=v;
+strcpy(m_cifa[m_n]->szText,token);
+m_cifa[m_n]->nAddr=n;
+m_n++;
+n++;
+}
+break;
+
+case '>':
+switch (m_str[n+1])
+{
+case '=':
+token[0]=m_str[n];
+token[1]=m_str[n+1];
+token[2]=0;
+v=FindInKWTab(token);
+m_cifa[m_n]=new CIFA;
+m_cifa[m_n]->nValue=0;
+m_cifa[m_n]->nType=v;
+strcpy(m_cifa[m_n]->szText,token);
+m_cifa[m_n]->nAddr=n;
+m_n++;
+n++;
+n++;
+break;
+
+default:
+token[0]=m_str[n];
+token[1]=0;
+v=FindInKWTab(token);
+m_cifa[m_n]=new CIFA;
+m_cifa[m_n]->nValue=0;
+m_cifa[m_n]->nType=v;
+strcpy(m_cifa[m_n]->szText,token);
+m_cifa[m_n]->nAddr=n;
+m_n++;
+n++;
+}
+break;
+
+case ':':
+switch (m_str[n+1])
+{
+case '=':
+token[0]=m_str[n];
+token[1]=m_str[n+1];
+token[2]=0;
+v=FindInKWTab(token);
+m_cifa[m_n]=new CIFA;
+m_cifa[m_n]->nValue=0;
+m_cifa[m_n]->nType=v;
+strcpy(m_cifa[m_n]->szText,token);
+m_cifa[m_n]->nAddr=n;
+m_n++;
+n++;
+n++;
+break;
+
+default:
+token[0]=m_str[n];
+token[1]=0;
+v=FindInKWTab(token);
+m_cifa[m_n]=new CIFA;
+m_cifa[m_n]->nValue=0;
+m_cifa[m_n]->nType=v;
+strcpy(m_cifa[m_n]->szText,token);
+m_cifa[m_n]->nAddr=n;
+m_n++;
+n++;
+}
+break;
+
+default:
+token[0]=m_str[n];
+token[1]=0;
+m_cifa[m_n]=new CIFA;
+m_cifa[m_n]->nValue=2;
+m_cifa[m_n]->nType=0;
+strcpy(m_cifa[m_n]->szText,token);
+m_cifa[m_n]->nAddr=n;
+m_n++;
+n++;
+} 
+
+if (m_n==10000-2) //词法分析的结果的个数规定为10000
+{
+m_cifa[m_n]=new CIFA;
+m_cifa[m_n]->nValue=99;
+m_cifa[m_n]->nType=0;
+strcpy(m_cifa[m_n]->szText,"");
+m_cifa[m_n]->nAddr=n-1;
+m_n++;
+break;
+}
+} 
+
+m_cifa[m_n]=new CIFA;
+m_cifa[m_n]->nValue=0;
+m_cifa[m_n]->nType=-1; //结束符
+strcpy(m_cifa[m_n]->szText,"");
+m_cifa[m_n]->nAddr=0;
+m_n++;
+
+return;
+}
+
+
+
+
+/*================================================================ 
+* 函数名：    FindInKWTab(char * a)
+* 功能描述:   在关键字表中查找  (protected)
+* 返回值：    int (如果找到返回在表中的位置，否则返回0)
+================================================================*/
+int CFenXi::FindInKWTab(char * a)
+{
+for (int i=0;i<50;i++)
+if (!::stricmp(m_szKW[i],a))   //找到
+return i;
+
+return 0; //未找到
+}
+
+
+
+/*================================================================ 
+* 函数名：    YuFaFenXi
+* 功能描述:   语法分析 (public)
+* 返回值：    void
+* 作 者：     程红秀 2005年6月15日
+================================================================*/
+void CFenXi::YuFaFenXi()
+{
+if (m_n==0) 
+return; //未进行词法分析
+
+m_nCur=0; //m_nCur用语指示词法分析结果表中单词的位置
+
+y_ChengXu(); //从 程序 开始
+
+return;
+}
+
+
+/*================================================================ 
+* 函数名：    y_ChengXu
+* 功能描述:   分析整个程序 (protected)
+* 返回值：    bool
+* 示例：
+Program abc;
+这里是程序体 
+.
+================================================================*/
+bool CFenXi::y_ChengXu() //程序
+{
+switch (m_cifa[m_nCur]->nType)
+{
+case 3: //从program开始
+break;
+
+default:
+m_nErrNo=3; //缺少关键字“ program ”！
+m_nErrAddr=m_nCur;
+return false;
+}
+
+m_nCur++; //分析下一个单词
+
+
+switch (m_cifa[m_nCur]->nType)
+{
+case 1: //标志符
+break;
+
+default:
+m_nErrNo=4; //program 后缺少标识符！
+m_nErrAddr=m_nCur;
+return false;
+}
+
+
+m_nCur++;
+
+switch (m_cifa[m_nCur]->nType)
+{
+case 30: //;
+break;
+default:
+m_nErrNo=5; //缺少“ ; ”符号！
+m_nErrAddr=m_nCur;
+return false;
+}
+
+
+m_nCur++;
+
+if (!y_ChengXuTi())  //分析程序体
+return false;
+
+switch (m_cifa[m_nCur]->nType)
+{
+case 31: //. (程序的最后一个符号)
+break;
+default:
+m_nErrNo=6; //缺少程序结束符“ . ”符号！
+m_nErrAddr=m_nCur;
+return false;
+}
+
+
+m_nCur++;
+switch (m_cifa[m_nCur]->nType)
+{
+case -1: //end of cifa
+break;
+default:
+m_nErrNo=96; //源程序结束符 end. 后还有多余内容！
+m_nErrAddr=m_nCur;
+return false;
+}
+
+
+m_nErrNo=0; //语法分析成功
+m_nErrAddr=m_nCur;
+return true;
+}
+
+
+/*================================================================ 
+* 函数名：    y_ChengXuTi
+* 功能描述:   分析程序体 (protected)
+* 返回值：    bool
+* 示例：
+  Integer x,y,z;   
+  Real a,b;        //变量声明
+
+  Procedure ab(Var m,n:Integer; t:Real);  //过程声明
+  Begin
+  t:=n+m;
+  If m>n then n:=m else t:=m;
+  While nbool CFenXi::y_ChengXuTi()
+{
+switch (m_cifa[m_nCur]->nType)
+{
+case 5: //procedure 
+case 14: //booleger
+case 15: //real
+
+if (!y_ShengMingChuan())   //声明串(用;隔开的多个变量或过程声明)
+return false;
+
+switch (m_cifa[m_nCur]->nType)
+{
+case 30: //;
+break;
+
+default:
+m_nErrNo=5; //缺少“ ; ”符号！"
+m_nErrAddr=m_nCur;
+return false;
+}
+m_nCur++;
+break;
+
+case 6: //begin
+break;
+
+default:
+m_nErrNo=7; //缺少《程序体》，应为 begin,integer,real,procedure"
+m_nErrAddr=m_nCur;
+return false;
+}
+
+switch (m_cifa[m_nCur]->nType)
+{
+case 6: //begin
+break;
+default:
+m_nErrNo=8; //缺少保留字“ begin ”！
+m_nErrAddr=m_nCur;
+return false;
+}
+
+m_nCur++;
+if (!y_YuJuChuan())  //语句串
+return false;
+
+switch (m_cifa[m_nCur]->nType)
+{
+case 7: //end
+break;
+default:
+m_nErrNo=10; //缺少保留字“ end ”！
+m_nErrAddr=m_nCur;
+return false;
+}
+
+m_nCur++;
+
+return true;
+}
+
+
+/*================================================================ 
+* 函数名：    y_ShengMingChuan
+* 功能描述:   声明串 用;隔开的多个声明(protected)
+* 返回值：    void
+================================================================*/
+bool CFenXi::y_ShengMingChuan()
+{
+if (!y_ShengMing()) 
+return false;
+
+while (m_cifa[m_nCur]->nType==30 && m_cifa[m_nCur+1]->nType!=6) //是; 不是begin
+{
+m_nCur++;
+if (!y_ShengMing()) //递归调用
+return false;
+}
+return true;
+}
+
+/*================================================================ 
+* 函数名：    y_ShengMing
+* 功能描述:   声明 (protected)
+* 返回值：    void
+================================================================*/
+bool CFenXi::y_ShengMing()
+{
+switch (m_cifa[m_nCur]->nType)
+{
+case 14: //booleger
+case 15: //real
+if (!y_BianliangShengMing()) //变量声明
+return false;
+break;
+
+case 5: //procedure
+if (!y_GuoChengShengMing()) //过程声明
+return false;
+break;
+
+default:
+m_nErrNo=11; //缺少声明(integer,real,procedure)
+m_nErrAddr=m_nCur;
+return false;
+}
+return true;
+}
+
+
+/*================================================================ 
+* 函数名：    y_BianliangShengMing
+* 功能描述:   变量声明 (protected)
+* 返回值：    void
+* 示例： Integer x,y,z;
+================================================================*/
+bool CFenXi::y_BianliangShengMing()
+{
+switch (m_cifa[m_nCur]->nType)
+{
+case 14: //booleger
+case 15: //real
+break;
+
+default:
+m_nErrNo=12; //缺少变量类型 integer 或 real！
+m_nErrAddr=m_nCur;
+return false;
+}
+
+m_nCur++;
+
+switch (m_cifa[m_nCur]->nType)
+{
+case 1: //id
+break;
+
+default: 
+m_nErrNo=14; //变量声明后缺少标识符！
+m_nErrAddr=m_nCur;
+return false;
+}
+
+m_nCur++;
+
+while (m_cifa[m_nCur]->nType==32)  //32 , 分析用逗号隔开的连续声明的几个变量
+{
+m_nCur++;
+
+switch (m_cifa[m_nCur]->nType)
+{
+case 1: //id
+break;
+
+default:
+m_nErrNo=14;  //变量声明后缺少标识符
+m_nErrAddr=m_nCur;
+return false;
+}
+m_nCur++;
+}
+return true;
+}
+
+/*================================================================ 
+* 函数名：    y_GuoChengShengMing
+* 功能描述:   过程声明 (protected)
+* 返回值：    void
+* 示例:
+  Procedure ab(形参);
+这里是程序体
+
+================================================================*/
+bool CFenXi::y_GuoChengShengMing()
+{
+switch (m_cifa[m_nCur]->nType)
+{
+case 5: //procedure
+break;
+
+default:
+m_nErrNo=15; //缺少保留字“ procedure ”！
+m_nErrAddr=m_nCur;
+return false;
+}
+
+m_nCur++;
+
+switch (m_cifa[m_nCur]->nType)
+{
+case 1: //id
+break;
+
+default:
+m_nErrNo=13; //procedure 后缺少标识符！
+m_nErrAddr=m_nCur;
+return false;
+}
+
+m_nCur++;
+
+switch (m_cifa[m_nCur]->nType)
+{
+case 33: //(
+if (!y_XingCanBuFeng())  //形参
+return false;
+break;
+}
+
+switch (m_cifa[m_nCur]->nType)
+{
+case 30: //;
+break;
+default:
+m_nErrNo=5; //缺少“ ; ”符号！
+m_nErrAddr=m_nCur;
+return false;
+}
+
+m_nCur++;
+
+if (!y_ChengXuTi()) //程序体 
+return false;
+
+return true;
+}
+
+
+/*================================================================ 
+* 函数名：    y_XingChan
+* 功能描述:   形参部分(protected)
+* 返回值：    void
+* 示例: (Var m,n:Integer; t:Real)
+================================================================*/
+bool CFenXi::y_XingCanBuFeng()
+{
+switch (m_cifa[m_nCur]->nType)
+{
+case 33: //(
+break;
+default:
+m_nErrNo=16; //缺少 “ ( ”符号！"
+m_nErrAddr=m_nCur;
+return false;
+}
+
+m_nCur++;
+
+if (!y_XingCan())
+return false;
+
+while (m_cifa[m_nCur]->nType==30) //;
+{
+m_nCur++;
+if (!y_XingCan()) 
+return false;
+}
+switch (m_cifa[m_nCur]->nType)
+{
+case 34: //)
+break;
+default:
+m_nErrNo=17;   //缺少 “ ) ”符号！
+m_nErrAddr=m_nCur;
+return false;
+}
+m_nCur++;
+return true;
+}
+
+
+/*================================================================ 
+* 函数名：    y_XingCan
+* 功能描述:   分析形参 (protected)
+* 返回值：    void
+* 示例：   Var m,n:Integer; t:Real
+================================================================*/
+bool CFenXi::y_XingCan()
+{
+if (m_cifa[m_nCur]->nType==4) //var
+m_nCur++;
+
+switch (m_cifa[m_nCur]->nType)
+{
+case 1: //id
+break;
+
+default:
+m_nErrNo=18; //"缺少形参标识符 ！"
+m_nErrAddr=m_nCur;
+return false;
+}
+
+m_nCur++;
+
+while (m_cifa[m_nCur]->nType==32) //, 用于分析多个形参的情况
+{
+m_nCur++;
+
+switch (m_cifa[m_nCur]->nType)
+{
+case 1: //id
+break;
+
+default:
+m_nErrNo=18; //"缺少形参标识符 ！"
+m_nErrAddr=m_nCur;
+return false;
+}
+m_nCur++;
+}
+
+switch (m_cifa[m_nCur]->nType)
+{
+case 35: //:
+break;
+default:
+m_nErrNo=19; //缺少 “ : ”符号！
+m_nErrAddr=m_nCur;
+return false;
+}
+
+m_nCur++;
+
+switch (m_cifa[m_nCur]->nType)
+{
+case 14: //booleger
+case 15: //real
+break;
+default:
+m_nErrNo=12; //缺少保留字 integer 或 real！
+m_nErrAddr=m_nCur;
+return false;
+}
+m_nCur++;
+return true;
+}
+
+
+
+/*================================================================ 
+* 函数名：    y_YuJuChuan
+* 功能描述:   语句串，用分号隔开的多个语句 (protected)
+* 返回值：    void
+* 示例： 
+  x:=1;y:=2;z:=3;
+  Call ab(x,y,z);
+  z:=4+z+(1+2+6+x)*3*y*5+7;
+  If ~ 3<=x & y<>4 then z:=0;
+  y:=219;  z:=37;  x:=y*z
+================================================================*/
+bool CFenXi::y_YuJuChuan()
+{
+if (!y_YuJu()) 
+return false;
+
+while (m_cifa[m_nCur]->nType==30) //;
+{
+m_nCur++;
+if (!y_YuJu()) 
+return false;
+}
+return true;
+}
+
+
+/*================================================================ 
+* 函数名：    y_YuJu
+* 功能描述:   语句 (protected)
+* 返回值：    void
+================================================================*/
+bool CFenXi::y_YuJu()
+{
+switch (m_cifa[m_nCur]->nType)
+{
+case 6: //begin
+if (!y_FuHeYuJu())
+return false;
+break;
+
+case 1: //id
+if (!y_FuZhiYuJu()) 
+return false;
+break;
+
+case 8: //if
+if (!y_TiaoJianYuJu())
+return false;
+break;
+
+case 11: //while
+if (!y_XunHuanYuJu()) 
+return false;
+break;
+
+case 13: //call
+if (!y_GuoChengYuJu()) return false;
+break;
+
+default:
+m_nErrNo=9;   //缺少《语句》，应为 begin,ID,if,while,call
+m_nErrAddr=m_nCur;
+return false;
+}
+return true;
+}
+
+
+
+/*================================================================ 
+* 函数名：    y_FuHeYuJu
+* 功能描述:   复合语句 (protected)
+* 返回值：    void
+================================================================*/
+bool CFenXi::y_FuHeYuJu() 
+{
+switch (m_cifa[m_nCur]->nType)
+{
+case 6: //begin
+break;
+default:
+m_nErrNo=8; //缺少保留字“ begin ”！
+m_nErrAddr=m_nCur;
+return false;
+}
+
+m_nCur++;
+
+if (!y_YuJuChuan()) //递归调用
+return false;
+
+switch (m_cifa[m_nCur]->nType)
+{
+case 7: //end
+break;
+default:
+m_nErrNo=10; //"缺少保留字“ end ”！
+m_nErrAddr=m_nCur;
+return false;
+}
+m_nCur++;
+
+return true;
+}
+
+
+
+/*================================================================ 
+* 函数名：    y_FuZhiYuJu
+* 功能描述:   赋值语句 (protected)
+* 返回值：    void
+* 示例：      y:=219;
+================================================================*/
+bool CFenXi::y_FuZhiYuJu()
+{
+switch (m_cifa[m_nCur]->nType)
+{
+case 1: //id
+break;
+default:
+m_nErrNo=20; //缺少标识符！
+m_nErrAddr=m_nCur;
+return false;
+}
+
+m_nCur++;
+
+switch (m_cifa[m_nCur]->nType)
+{
+case 29: //:=
+break;
+default:
+m_nErrNo=21;  //缺少赋值符号“ := ”！
+m_nErrAddr=m_nCur;
+return false;
+}
+
+
+m_nCur++;
+
+if (!y_BiaoDaShi()) 
+return false;
+
+return true;
+}
+
+
+
+/*================================================================ 
+* 函数名：    y_TiaoJianYuJu
+* 功能描述:   条件语句 (protected)
+* 返回值：    void
+* 示例： If m>n then n:=m else t:=m;
+================================================================*/
+bool CFenXi::y_TiaoJianYuJu()
+{
+switch (m_cifa[m_nCur]->nType)
+{
+case 8: //if
+break;
+default:
+m_nErrNo=22;  //缺少保留字“ if ”！
+m_nErrAddr=m_nCur;
+return false;
+}
+
+m_nCur++;
+
+if (!y_BuErBiaoDaShi()) //表达式
+return false;
+
+
+switch (m_cifa[m_nCur]->nType)
+{
+case 9: //then
+break;
+default:
+m_nErrNo=23;  //缺少保留字“ then ”！
+m_nErrAddr=m_nCur;
+return false;
+}
+m_nCur++;
+
+if (!y_YuJu()) //语句
+return false;
+
+switch (m_cifa[m_nCur]->nType)
+{
+case 10: //else
+break;
+default:
+return true;
+}
+m_nCur++;
+
+if (!y_YuJu()) //语句
+return false;
+
+return true;
+}
+
+
+
+/*================================================================ 
+* 函数名：    y_XunHuanYuJu
+* 功能描述:   循环语句 (protected)
+* 返回值：    void
+* 示例：    
+While nbool CFenXi::y_XunHuanYuJu()
+{
+switch (m_cifa[m_nCur]->nType)
+{
+case 11: //while
+break;
+default:
+m_nErrNo=24;
+m_nErrAddr=m_nCur;
+return false;
+}
+m_nCur++;
+
+if (!y_BuErBiaoDaShi())  //表达式
+return false;
+
+switch (m_cifa[m_nCur]->nType)
+{
+case 12: //do
+break;
+
+default:
+m_nErrNo=25;   //缺少保留字“ do ”！
+m_nErrAddr=m_nCur;
+return false;
+}
+m_nCur++;
+
+if (!y_YuJu()) 
+return false;
+
+return true;
+}
+
+
+
+/*================================================================ 
+* 函数名：    y_GuoChengYuJu
+* 功能描述:   过程语句 (protected)
+* 返回值：    void
+* 示例： Call ab(x,y,z);
+================================================================*/
+bool CFenXi::y_GuoChengYuJu()
+{
+switch (m_cifa[m_nCur]->nType)
+{
+case 13: //call
+break;
+
+default:
+m_nErrNo=26; //缺少保留字“ call ”！
+m_nErrAddr=m_nCur;
+return false;
+}
+
+m_nCur++;
+
+switch (m_cifa[m_nCur]->nType)
+{
+case 1: //id
+break;
+
+default:
+m_nErrNo=27; //缺少被调过程名标识符！
+m_nErrAddr=m_nCur;
+return false;
+}
+
+m_nCur++;
+
+switch (m_cifa[m_nCur]->nType)
+{
+case 33: //(
+break;
+default:
+return true;
+}
+if (!y_ShiCanBiao()) //表达式
+return false;
+
+return true;
+}
+
+
+
+/*================================================================ 
+* 函数名：    y_ShiCanBiao
+* 功能描述:   实参表 (protected)
+* 返回值：    void
+*示例： Call ab(x,y,z);
+================================================================*/
+bool CFenXi::y_ShiCanBiao()
+{
+switch (m_cifa[m_nCur]->nType)
+{
+case 33: //(
+break;
+default:
+m_nErrNo=16; //缺少 “ ( ”符号！
+m_nErrAddr=m_nCur;
+return false;
+}
+
+m_nCur++;
+
+if (!y_BiaoDaShi())  //表达式
+return false;
+
+while (m_cifa[m_nCur]->nType==32) //,
+{
+m_nCur++;
+if (!y_BiaoDaShi()) 
+return false;
+}
+
+switch (m_cifa[m_nCur]->nType)
+{
+case 34: //)
+break;
+default:
+m_nErrNo=17; //缺少 “ ) ”符号
+m_nErrAddr=m_nCur;
+return false;
+}
+m_nCur++;
+return true;
+}
+
+
+
+/*================================================================ 
+* 函数名：    y_BiaoDaShi
+* 功能描述:   表达式 (protected)
+* 返回值：    void
+* 示例：    z:=4+z+(1+2+6+x)*3*y*5+7;
+================================================================*/
+bool CFenXi::y_BiaoDaShi()
+{
+if (!y_Xiang())
+return false;
+
+while (m_cifa[m_nCur]->nType==16) //+
+{
+m_nCur++;
+if (!y_Xiang()) 
+return false;
+}
+
+return true;
+}
+
+
+
+/*================================================================ 
+* 函数名：    y_Xiang
+* 功能描述:   项 (protected)
+* 返回值：    void
+================================================================*/
+bool CFenXi::y_Xiang()
+{
+if (!y_YinZi()) 
+return false;
+
+while (m_cifa[m_nCur]->nType==18)//*
+{
+m_nCur++;
+if (!y_YinZi())
+return false;
+}
+
+return true;
+}
+
+
+
+/*================================================================ 
+* 函数名：    y_YinZi
+* 功能描述:   因子 (protected)
+* 返回值：    void
+================================================================*/
+bool CFenXi::y_YinZi()
+{
+switch (m_cifa[m_nCur]->nType)
+{
+case 1: //id
+m_nCur++;
+break;
+
+case 2: //num
+m_nCur++;
+break;
+
+case 33: //(
+m_nCur++;
+
+if (!y_BiaoDaShi())  //递归调用
+return false;
+
+switch (m_cifa[m_nCur]->nType)
+{
+case 34: //)
+break;
+default:
+m_nErrNo=17;  //缺少 “ ) ”符号！
+m_nErrAddr=m_nCur;
+return false;
+}
+m_nCur++;
+
+break;
+
+default:
+m_nErrNo=28; //缺少《因子》，应为 (,ID,NUMBER"
+m_nErrAddr=m_nCur;
+return false;
+}
+return true;
+}
+
+
+
+/*================================================================ 
+* 函数名：    y_BuErBiaoDaShi
+* 功能描述:   布尔表达式 (protected)
+* 返回值：    void
+================================================================*/
+bool CFenXi::y_BuErBiaoDaShi()
+{
+switch (m_cifa[m_nCur]->nType)
+{
+case 20: //~
+m_nCur++;
+if (!y_BuErBiaoDaShi())
+return false;
+break;
+
+case 33: //(
+case 1: //id
+case 2: //num
+if (!y_GuanXiBiaoDaShi()) 
+return false;
+
+while (m_cifa[m_nCur]->nType==21 || m_cifa[m_nCur]->nType==22) // & |
+{
+m_nCur++;
+if (!y_BuErBiaoDaShi())
+return false;
+}
+break;
+
+default:
+m_nErrNo=29; //"缺少《布尔表达式》，应为 ~,(,ID,NUMBER"
+m_nErrAddr=m_nCur;
+return false;
+}
+return true;
+}
+
+
+
+/*================================================================ 
+* 函数名：    y_GuanXiBiaoDaShi
+* 功能描述:   关系表达式 (protected)
+* 返回值：    void
+================================================================*/
+bool CFenXi::y_GuanXiBiaoDaShi()
+{
+if (!y_BiaoDaShi())  //表达式
+return false;
+
+if (!y_GuanXi()) //关系
+return false;
+
+if (!y_BiaoDaShi()) //表达式
+return false;
+
+return true;
+}
+
+
+
+/*================================================================ 
+* 函数名：    y_GuanXi
+* 功能描述:   关系   (protected)
+* 返回值：    void
+================================================================*/
+bool CFenXi::y_GuanXi()
+{
+switch (m_cifa[m_nCur]->nType)
+{
+case 23: //<
+case 24: //<=
+case 25: //>
+case 26: //>=
+case 27: //=
+case 28: //<>
+break;
+
+default:
+m_nErrNo=30; //缺少关系(<,<=,>,>=,=,<>)！
+m_nErrAddr=m_nCur;
+return false;
+}
+m_nCur++;
+return true;
+}
+
+
+/*================================================================ 
+* 函数名：    init
+* 功能描述:   用于初始化关键字表和错误信息表   (protected)
+* 返回值：    void
+================================================================*/
+void CFenXi::init()
+{
+strcpy(m_szKW[0],"");
+strcpy(m_szKW[1],"");//标识符
+strcpy(m_szKW[2],"");//正整数
+strcpy(m_szKW[3],"program");
+strcpy(m_szKW[4],"var");
+strcpy(m_szKW[5],"procedure");
+strcpy(m_szKW[6],"begin");
+strcpy(m_szKW[7],"end");
+strcpy(m_szKW[8],"if");
+strcpy(m_szKW[9],"then");
+strcpy(m_szKW[10],"else");
+strcpy(m_szKW[11],"while");
+strcpy(m_szKW[12],"do");
+strcpy(m_szKW[13],"call");
+strcpy(m_szKW[14],"integer");
+strcpy(m_szKW[15],"real");
+strcpy(m_szKW[16],"+");
+strcpy(m_szKW[17],"-");
+strcpy(m_szKW[18],"*");
+strcpy(m_szKW[19],"/");
+strcpy(m_szKW[20],"~");
+strcpy(m_szKW[21],"&");
+strcpy(m_szKW[22],"|");
+strcpy(m_szKW[23],"<");
+strcpy(m_szKW[24],"<=");
+strcpy(m_szKW[25],">");
+strcpy(m_szKW[26],">=");
+strcpy(m_szKW[27],"=");
+strcpy(m_szKW[28],"<>");
+strcpy(m_szKW[29],":=");
+strcpy(m_szKW[30],";");
+strcpy(m_szKW[31],".");
+strcpy(m_szKW[32],",");
+strcpy(m_szKW[33],"(");
+strcpy(m_szKW[34],")");
+strcpy(m_szKW[35],":");
+strcpy(m_szKW[36],"/*");
+strcpy(m_szKW[37],"*/");
+strcpy(m_szKW[38],"");
+strcpy(m_szKW[39],"");
+strcpy(m_szKW[40],"");
+strcpy(m_szKW[41],"");
+strcpy(m_szKW[42],"");
+strcpy(m_szKW[43],"");
+strcpy(m_szKW[44],"");
+strcpy(m_szKW[45],"");
+strcpy(m_szKW[46],"");
+strcpy(m_szKW[47],"");
+strcpy(m_szKW[48],"");
+strcpy(m_szKW[49],"");
+strcpy(m_szErrMsg[0],"正确！");
+strcpy(m_szErrMsg[1],"数字位数过长！");
+strcpy(m_szErrMsg[2],"非法字符！");
+strcpy(m_szErrMsg[3],"缺少关键字“ program ”！");
+strcpy(m_szErrMsg[4],"program 后缺少标识符！");
+strcpy(m_szErrMsg[5],"缺少“ ; ”符号！");
+strcpy(m_szErrMsg[6],"缺少程序结束符“ . ”符号！");
+strcpy(m_szErrMsg[7],"缺少《程序体》，应为 begin,integer,real,procedure");
+strcpy(m_szErrMsg[8],"缺少保留字“ begin ”！");
+strcpy(m_szErrMsg[9],"缺少《语句》，应为 begin,ID,if,while,call");
+strcpy(m_szErrMsg[10],"缺少保留字“ end ”！");
+strcpy(m_szErrMsg[11],"缺少《声明》，应为 integer,real,procedure");
+strcpy(m_szErrMsg[12],"缺少保留字 integer 或 real！");
+strcpy(m_szErrMsg[13],"procedure 后缺少标识符！");
+strcpy(m_szErrMsg[14],"变量声明后缺少标识符！");
+strcpy(m_szErrMsg[15],"缺少保留字“ procedure ”！");
+strcpy(m_szErrMsg[16],"缺少 “ ( ”符号！");
+strcpy(m_szErrMsg[17],"缺少 “ ) ”符号！");
+strcpy(m_szErrMsg[18],"缺少形参标识符 ！");
+strcpy(m_szErrMsg[19],"缺少 “ : ”符号！");
+strcpy(m_szErrMsg[20],"缺少标识符！");
+strcpy(m_szErrMsg[21],"缺少赋值符号“ := ”！");
+strcpy(m_szErrMsg[22],"缺少保留字“ if ”！");
+strcpy(m_szErrMsg[23],"缺少保留字“ then ”！");
+strcpy(m_szErrMsg[24],"缺少保留字“ while ”！");
+strcpy(m_szErrMsg[25],"缺少保留字“ do ”！");
+strcpy(m_szErrMsg[26],"缺少保留字“ call ”！");
+strcpy(m_szErrMsg[27],"缺少被调过程名标识符！");
+strcpy(m_szErrMsg[28],"缺少《因子》，应为 (,ID,NUMBER");
+strcpy(m_szErrMsg[29],"缺少《布尔表达式》，应为 ~,(,ID,NUMBER");
+strcpy(m_szErrMsg[30],"缺少《关系》！");
+strcpy(m_szErrMsg[31],"变量名不能和过程名相同！");
+strcpy(m_szErrMsg[32],"标识符重复声明！");
+strcpy(m_szErrMsg[33],"未声明标识符！");
+strcpy(m_szErrMsg[34],"不能直接引用过程名！");
+strcpy(m_szErrMsg[35],"不能从real转换为integer类型！");
+strcpy(m_szErrMsg[36],"不能用常数作实参！");
+strcpy(m_szErrMsg[37],"变参应为变量！");
+strcpy(m_szErrMsg[38],"实参个数不足！");
+strcpy(m_szErrMsg[39],"只有integer和integer才能比较！");
+strcpy(m_szErrMsg[40],"不能这样调用过程！");
+strcpy(m_szErrMsg[41],"");
+strcpy(m_szErrMsg[42],"");
+strcpy(m_szErrMsg[43],"");
+strcpy(m_szErrMsg[96],"源程序结束符 end. 后还有多余内容！");
+strcpy(m_szErrMsg[97],"语法错误太多，终止语法分析！");
+strcpy(m_szErrMsg[98],"源程序不正常结束！");
+strcpy(m_szErrMsg[99],"内存不足！词法分析终止！");
+} 
+
